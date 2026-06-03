@@ -1,0 +1,46 @@
+{
+  "realm": "cloudlab",
+  "enabled": true,
+  "displayName": "CloudLab Platform",
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "clients": [
+    {
+      "clientId": "cloudlab-frontend",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "cloudlab-backend",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocol": "openid-connect"
+    }
+  ],
+  "roles": {
+    "realm": [
+      { "name": "engineer", "description": "Network engineer — can create and manage own labs" },
+      { "name": "admin", "description": "Platform administrator — full access" },
+      { "name": "viewer", "description": "Read-only access to shared labs" }
+    ]
+  },
+  "defaultRoles": ["engineer"]
+}
