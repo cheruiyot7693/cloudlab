@@ -1,0 +1,61 @@
+name: New Topology Request
+description: Request a new lab topology to be added to the catalog
+labels: ["catalog", "topology"]
+body:
+  - type: markdown
+    attributes:
+      value: "## New Topology Request"
+
+  - type: input
+    id: name
+    attributes:
+      label: Topology name
+      placeholder: "e.g. BGP Route Reflector with 6 nodes"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - OSPF
+        - BGP
+        - MPLS / VPLS
+        - SD-WAN
+        - Firewall & VPN
+        - Network Automation
+        - Switching / L2
+        - Penetration Testing
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: nos
+    attributes:
+      label: Preferred NOS
+      multiple: true
+      options:
+        - FRRouting (FRR)
+        - VyOS
+        - Arista cEOS
+        - Cisco IOSv
+        - Juniper vSRX
+        - Any / Open to suggestion
+
+  - type: dropdown
+    id: difficulty
+    attributes:
+      label: Difficulty
+      options:
+        - Beginner (CCNA)
+        - Intermediate (CCNP)
+        - Advanced (CCIE)
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What should this topology demonstrate?
+    validations:
+      required: true

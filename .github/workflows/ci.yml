@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Python lint ────────────────────────────────────────────────────────────
+  lint-python:
+    name: Lint Python (Black + isort + flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install lint tools
+        run: pip install black isort flake8
+
+      - name: Black format check
+        run: black --check backend/
+
+      - name: isort check
+        run: isort --check-only backend/
+
+      - name: flake8 lint
+        run: flake8 backend/ --max-line-length=88 --extend-ignore=E203,W503
+
+  # ── TypeScript lint ────────────────────────────────────────────────────────
+  lint-frontend:
+    name: Lint Frontend (ESLint + Prettier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: ESLint
+        run: npm run lint
+        working-directory: frontend
+
+      - name: Prettier check
+        run: npm run format:check
+        working-directory: frontend
+
+  # ── Backend tests ──────────────────────────────────────────────────────────
+  test-backend:
+    name: Backend Tests (pytest)
+    runs-on: ubuntu-latest
+    needs: lint-python
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cloudlab
+          POSTGRES_PASSWORD: cloudlab_test
+          POSTGRES_DB: cloudlab_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+        working-directory: backend
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://cloudlab:cloudlab_test@localhost:5432/cloudlab_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: ci-test-secret-key-not-for-production
+          ENV: test
+        run: pytest tests/ -v --tb=short --cov=app --cov-report=term-missing
+        working-directory: backend
+
+  # ── Frontend tests ─────────────────────────────────────────────────────────
+  test-frontend:
+    name: Frontend Tests (Vitest)
+    runs-on: ubuntu-latest
+    needs: lint-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run tests
+        run: npm run test:run
+        working-directory: frontend
+
+  # ── Topology YAML validation ───────────────────────────────────────────────
+  validate-topologies:
+    name: Validate Lab Topologies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
+        run: pip install pyyaml jsonschema
+
+      - name: Validate topology YAML files
+        run: python lab-catalog/scripts/validate_topologies.py
+
+  # ── Docker build check ─────────────────────────────────────────────────────
+  build-images:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
