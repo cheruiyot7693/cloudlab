@@ -1,0 +1,104 @@
+# CloudLab Platform — Prometheus Stack Helm Values
+# Tuned for 8GB RAM local dev machine.
+#
+# Install:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   helm install cloudlab-monitor prometheus-community/kube-prometheus-stack \
+#     -n cloudlab-monitor \
+#     -f infra/helm/prometheus-values.yaml
+
+# ── Prometheus ────────────────────────────────────────────────────────────────
+prometheus:
+  prometheusSpec:
+    # Scrape interval — longer interval saves CPU on dev
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+    # Retention — keep 7 days locally
+    retention: 7d
+    retentionSize: 2GB
+
+    # RAM limit: 512MB is enough for dev metrics volume
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    # Only monitor cloudlab namespaces — ignore kube-system noise
+    podMonitorNamespaceSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: cloudlab
+    serviceMonitorNamespaceSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: cloudlab
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+# ── Grafana ───────────────────────────────────────────────────────────────────
+grafana:
+  enabled: true
+  adminPassword: cloudlab_dev   # change in production
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  service:
+    type: NodePort
+    nodePort: 32001
+
+  # Pre-load CloudLab dashboards from configmaps
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: cloudlab-monitor
+
+  persistence:
+    enabled: true
+    size: 1Gi
+
+# ── Alertmanager ──────────────────────────────────────────────────────────────
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+# ── Disable heavy components not needed in dev ────────────────────────────────
+kubeEtcd:
+  enabled: false     # K3s uses SQLite, not etcd
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+# ── node-exporter (host metrics) ─────────────────────────────────────────────
+nodeExporter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi

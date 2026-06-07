@@ -1,0 +1,82 @@
+# CloudLab Platform — Local Image Registry
+# Runs inside K3s so lab NOS images can be pushed once and pulled fast.
+# kubectl apply -f infra/k8s/local-registry.yaml
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-registry
+  namespace: cloudlab-system
+  labels:
+    app: local-registry
+    app.kubernetes.io/component: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: local-registry
+  template:
+    metadata:
+      labels:
+        app: local-registry
+    spec:
+      containers:
+        - name: registry
+          image: registry:2
+          ports:
+            - containerPort: 5000
+              name: registry
+          env:
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+            - name: REGISTRY_LOG_LEVEL
+              value: warn
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: registry-data
+              mountPath: /var/lib/registry
+      volumes:
+        - name: registry-data
+          hostPath:
+            path: /var/lib/cloudlab/registry
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: local-registry
+  namespace: cloudlab-system
+  labels:
+    app: local-registry
+spec:
+  selector:
+    app: local-registry
+  ports:
+    - port: 5000
+      targetPort: 5000
+      name: registry
+  type: ClusterIP
+
+---
+# NodePort for pushing images from host machine
+apiVersion: v1
+kind: Service
+metadata:
+  name: local-registry-nodeport
+  namespace: cloudlab-system
+spec:
+  selector:
+    app: local-registry
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 32000
+  type: NodePort
