@@ -20,7 +20,7 @@ Closes #<!-- issue number -->
 ## Changes Made
 
 <!-- Bullet list of specific changes -->
-- 
+-
 
 ## Testing
 
