@@ -28,3 +28,17 @@ cluster-status:
 	@echo ""
 	@echo "── Resource Usage ─────────────────────────────────────────"
 	kubectl top nodes 2>/dev/null || echo "(metrics-server not ready)"
+
+apply-manifests:
+	infra/scripts/apply-manifests.sh
+
+ns-list:
+	python3 infra/scripts/namespace_provisioner.py --list
+
+ns-create:
+	@read -p "User ID: " uid; read -p "Lab ID: " lid; \
+	python3 infra/scripts/namespace_provisioner.py --create --user $$uid --lab $$lid
+
+ns-delete:
+	@read -p "Namespace name: " ns; \
+	python3 infra/scripts/namespace_provisioner.py --delete --namespace $$ns

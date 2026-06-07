@@ -1,7 +1,13 @@
-# CloudLab Platform — Namespace Definitions
-# Applied by bootstrap-k3s.sh and also usable standalone:
+# CloudLab Platform — Namespace Strategy
+# ============================================================
+# Static namespaces: applied once during cluster bootstrap
+# Dynamic namespaces: created per-lab by the backend API
+#
+# Apply static namespaces:
 #   kubectl apply -f infra/k8s/namespaces.yaml
+# ============================================================
 
+# ── Static: Platform services ─────────────────────────────────────────────────
 ---
 apiVersion: v1
 kind: Namespace
@@ -10,8 +16,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: cloudlab
     app.kubernetes.io/component: platform
+    cloudlab/namespace-type: system
 
 ---
+# ── Static: Lab pool — all user labs run inside here ─────────────────────────
+# Individual labs get child namespaces: lab-<user_id>-<lab_id>
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -19,8 +28,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: cloudlab
     app.kubernetes.io/component: labs
+    cloudlab/namespace-type: labs-pool
 
 ---
+# ── Static: Observability stack ──────────────────────────────────────────────
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -28,3 +39,53 @@ metadata:
   labels:
     app.kubernetes.io/part-of: cloudlab
     app.kubernetes.io/component: observability
+    cloudlab/namespace-type: monitor
+
+---
+# ── NetworkPolicy: isolate labs from platform services ────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-labs-from-system
+  namespace: cloudlab-labs
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              cloudlab/namespace-type: labs-pool
+  egress:
+    # Allow DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow internet but block platform pod/service CIDRs
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+
+---
+# ── NetworkPolicy: system — only monitor can scrape ──────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: system-default-deny
+  namespace: cloudlab-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              cloudlab/namespace-type: monitor
