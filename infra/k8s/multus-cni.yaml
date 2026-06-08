@@ -77,9 +77,12 @@ spec:
         - name: install-multus-binary
           image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.0.2
           command:
-            - cp
-            - /usr/src/multus-cni/bin/multus
-            - /host/opt/cni/bin/multus
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /host/opt/cni/bin && \
+              cp /usr/src/multus-cni/bin/multus /host/opt/cni/bin/multus && \
+              echo "Multus binary installed successfully" 
           resources:
             requests:
               cpu: 10m
@@ -125,6 +128,7 @@ spec:
         - name: cnibin
           hostPath:
             path: /opt/cni/bin
+            type: DirectoryOrCreate
         - name: multus-cfg
           configMap:
             name: multus-cni-config
