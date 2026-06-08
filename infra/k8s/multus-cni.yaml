@@ -99,6 +99,8 @@ spec:
             - --multus-conf-file=auto
             - --cni-version=0.3.1
             # K3s uses flannel — tell Multus to delegate to it
+            - --multus-master-cni-conf-dir=/host/etc/cni/net.d
+            - --cni-conf-dir=/host/etc/cni/net.d
             - --multus-master-cni-file-name=10-flannel.conflist
           resources:
             requests:
@@ -119,7 +121,7 @@ spec:
       volumes:
         - name: cni
           hostPath:
-            path: /etc/cni/net.d
+            path: /var/lib/rancher/k3s/agent/etc/cni/net.d
         - name: cnibin
           hostPath:
             path: /opt/cni/bin
