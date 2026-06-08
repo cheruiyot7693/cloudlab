@@ -42,3 +42,15 @@ ns-create:
 ns-delete:
 	@read -p "Namespace name: " ns; \
 	python3 infra/scripts/namespace_provisioner.py --delete --namespace $$ns
+
+install-operators:
+	infra/scripts/install-operators.sh
+
+test-first-lab:
+	sudo infra/scripts/test-first-lab.sh
+
+lab-destroy:
+	sudo containerlab destroy --topo lab-catalog/topologies/ospf-single-area.clab.yml
+
+clab-status:
+	containerlab inspect --all 2>/dev/null || echo "No labs running"
