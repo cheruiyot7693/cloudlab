@@ -28,7 +28,7 @@
       "clientId": "cloudlab-backend",
       "enabled": true,
       "publicClient": false,
-      "secret": "${KEYCLOAK_CLIENT_SECRET}",
+      "secret": "dev-secret",
       "serviceAccountsEnabled": true,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
