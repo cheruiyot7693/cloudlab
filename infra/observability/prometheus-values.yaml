@@ -17,7 +17,7 @@ commonLabels:
 # ------------------------------------------------------------------------------
 grafana:
   enabled: true
-  adminPassword: ""    # override via secret in production
+  adminPassword: null    # override via secret in production
 
   sidecar:
     dashboards:
