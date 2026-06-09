@@ -1,0 +1,196 @@
+version: "3.9"
+
+# CloudLab Platform — Local Development Environment
+# Usage: docker compose up -d
+# Services start in dependency order with health checks.
+
+networks:
+  cloudlab-dev:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  keycloak-data:
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloudlab-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cloudlab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cloudlab_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-cloudlab}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cloudlab}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cloudlab-dev
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: cloudlab-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-cloudlab_dev}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-cloudlab_dev}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cloudlab-dev
+
+  # ── Keycloak (Auth) ─────────────────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: cloudlab-keycloak
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-cloudlab}
+      KC_DB_USERNAME: ${POSTGRES_USER:-cloudlab}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-cloudlab_dev}
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8080
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - cloudlab-dev
+
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloudlab-backend
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      ENV: development
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cloudlab}:${POSTGRES_PASSWORD:-cloudlab_dev}@postgres:5432/${POSTGRES_DB:-cloudlab}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-cloudlab_dev}@redis:6379/0
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: cloudlab
+      KEYCLOAK_CLIENT_ID: cloudlab-backend
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-dev-secret}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      ALLOWED_ORIGINS: http://localhost:3000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cloudlab-dev
+
+  # ── Celery Worker (background tasks) ───────────────────────────────────────
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloudlab-celery
+    restart: unless-stopped
+    command: celery -A app.worker worker --loglevel=info --concurrency=4
+    environment:
+      ENV: development
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cloudlab}:${POSTGRES_PASSWORD:-cloudlab_dev}@postgres:5432/${POSTGRES_DB:-cloudlab}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-cloudlab_dev}@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cloudlab-dev
+
+  # ── React Frontend ──────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: cloudlab-frontend
+    restart: unless-stopped
+    command: npm run dev -- --host
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_KEYCLOAK_URL: http://localhost:8080
+      VITE_KEYCLOAK_REALM: cloudlab
+      VITE_KEYCLOAK_CLIENT_ID: cloudlab-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - cloudlab-dev
+
+  # ── Wetty (Browser SSH terminal) ────────────────────────────────────────────
+  wetty:
+    image: wettyoss/wetty:latest
+    container_name: cloudlab-wetty
+    restart: unless-stopped
+    command: --base /wetty --port 3001
+    ports:
+      - "3001:3001"
+    networks:
+      - cloudlab-dev
+
+  # ── Mailhog (catch-all SMTP for dev) ───────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: cloudlab-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    networks:
+      - cloudlab-dev
