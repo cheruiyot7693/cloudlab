@@ -20,7 +20,6 @@ metadata:
 
 ---
 # ── Static: Lab pool — all user labs run inside here ─────────────────────────
-# Individual labs get child namespaces: lab-<user_id>-<lab_id>
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -42,6 +41,46 @@ metadata:
     cloudlab/namespace-type: monitor
 
 ---
+# ── ServiceAccount for backend lab provisioner ───────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudlab-controller
+  namespace: cloudlab-system
+
+---
+# ── ClusterRole: what the backend controller can do ──────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudlab-controller
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# ── ClusterRoleBinding ────────────────────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudlab-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudlab-controller
+subjects:
+  - kind: ServiceAccount
+    name: cloudlab-controller
+    namespace: cloudlab-system
+
+---
 # ── NetworkPolicy: isolate labs from platform services ────────────────────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -59,33 +98,12 @@ spec:
             matchLabels:
               cloudlab/namespace-type: labs-pool
   egress:
-    # Allow DNS
     - ports:
         - port: 53
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Allow internet but block platform pod/service CIDRs
     - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.42.0.0/16
-              - 10.43.0.0/16
-
----
-# ── NetworkPolicy: system — only monitor can scrape ──────────────────────────
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: system-default-deny
-  namespace: cloudlab-system
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
         - namespaceSelector:
             matchLabels:
-              cloudlab/namespace-type: monitor
+              cloudlab/namespace-type: labs-pool
