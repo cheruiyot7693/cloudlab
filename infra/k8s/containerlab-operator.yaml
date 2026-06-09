@@ -1,0 +1,217 @@
+# CloudLab Platform — Containerlab Operator
+# =============================================
+# The Containerlab operator watches for ContainerLab CRDs in any namespace
+# and reconciles them into running network topologies.
+#
+# Apply:
+#   kubectl apply -f infra/k8s/containerlab-operator.yaml
+#
+# Verify:
+#   kubectl get pods -n cloudlab-system -l app=containerlab-operator
+#   kubectl get crd | grep clabs
+# =============================================
+
+---
+# ── CRD: ContainerLab ────────────────────────────────────────────────────────
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: containerlabs.clabs.nokia.com
+spec:
+  group: clabs.nokia.com
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                topology:
+                  type: string
+                  description: "Containerlab topology YAML content"
+                reconfigure:
+                  type: boolean
+                  default: false
+                debug:
+                  type: boolean
+                  default: false
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Provisioning, Running, Paused, Failed, Terminating]
+                nodes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      kind:
+                        type: string
+                      image:
+                        type: string
+                      status:
+                        type: string
+                      mgmtIP:
+                        type: string
+                message:
+                  type: string
+                startTime:
+                  type: string
+                  format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Nodes
+          type: integer
+          jsonPath: .status.nodes[*]
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: containerlabs
+    singular: containerlab
+    kind: ContainerLab
+    shortNames: [clab]
+
+---
+# ── ServiceAccount for operator ───────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: containerlab-operator
+  namespace: cloudlab-system
+
+---
+# ── ClusterRole: operator needs broad pod/network access ──────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: containerlab-operator
+rules:
+  - apiGroups: ["clabs.nokia.com"]
+    resources: ["containerlabs", "containerlabs/status"]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log", "services", "configmaps",
+                "persistentvolumeclaims", "namespaces", "serviceaccounts"]
+    verbs: ["*"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["*"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["*"]
+  # Required for Containerlab to manage virtual ethernet pairs
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: containerlab-operator
+subjects:
+  - kind: ServiceAccount
+    name: containerlab-operator
+    namespace: cloudlab-system
+roleRef:
+  kind: ClusterRole
+  name: containerlab-operator
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ── Operator Deployment ───────────────────────────────────────────────────────
+# Uses the official Containerlab image in operator mode.
+# On 8GB RAM: single replica is sufficient for dev.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: containerlab-operator
+  namespace: cloudlab-system
+  labels:
+    app: containerlab-operator
+    app.kubernetes.io/component: lab-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: containerlab-operator
+  template:
+    metadata:
+      labels:
+        app: containerlab-operator
+    spec:
+      serviceAccountName: containerlab-operator
+
+      # Containerlab needs elevated privileges to create veth pairs
+      # and manage network namespaces on the host
+      hostNetwork: false
+      hostPID: false
+
+      containers:
+        - name: operator
+          image: ghcr.io/srl-labs/clabs-operator:0.1.0
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: WATCH_NAMESPACE
+              value: ""   # watch all namespaces
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: containerlab-operator
+            - name: LOG_LEVEL
+              value: info
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # containerlab writes temp files
+            capabilities:
+              add:
+                - NET_ADMIN    # required for veth pair creation
+                - SYS_ADMIN    # required for network namespace management
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+      # Tolerate running on control-plane node (single-node K3s setup)
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule

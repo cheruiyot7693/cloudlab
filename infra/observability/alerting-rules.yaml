@@ -1,0 +1,152 @@
+# =============================================================================
+# CloudLab — Custom Prometheus Alerting Rules
+# Phase 0.3 | infra: prometheus and grafana helm chart
+# (Extended in Phase 6.2 with lab boot time and credit burn rate alerts)
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cloudlab-alerts
+  namespace: cloudlab-monitoring
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+    release: kube-prometheus-stack          # must match Helm release name
+    role: alert-rules
+spec:
+  groups:
+
+    # --------------------------------------------------------------------------
+    # Node health
+    # --------------------------------------------------------------------------
+    - name: cloudlab.node
+      interval: 30s
+      rules:
+        - alert: NodeHighCPU
+          expr: |
+            (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.90
+          for: 5m
+          labels:
+            severity: warning
+            component: node
+          annotations:
+            summary: "Node {{ $labels.instance }} CPU above 90%"
+            description: "CPU utilisation is {{ $value | humanizePercentage }} for 5+ minutes."
+
+        - alert: NodeMemoryPressure
+          expr: |
+            (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.10
+          for: 5m
+          labels:
+            severity: warning
+            component: node
+          annotations:
+            summary: "Node {{ $labels.instance }} memory below 10%"
+
+        - alert: NodeDiskPressure
+          expr: |
+            (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+          for: 5m
+          labels:
+            severity: warning
+            component: node
+          annotations:
+            summary: "Node {{ $labels.instance }} root disk below 15%"
+
+    # --------------------------------------------------------------------------
+    # Kubernetes namespace / pod health
+    # --------------------------------------------------------------------------
+    - name: cloudlab.k8s
+      interval: 30s
+      rules:
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total[15m]) * 60 > 0
+          for: 5m
+          labels:
+            severity: warning
+            component: pod
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} crash-looping"
+
+        - alert: PodNotReady
+          expr: |
+            kube_pod_status_ready{condition="true"} == 0
+          for: 10m
+          labels:
+            severity: warning
+            component: pod
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} not ready for 10m"
+
+        - alert: DeploymentReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas != kube_deployment_status_replicas_available
+          for: 10m
+          labels:
+            severity: warning
+            component: deployment
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has unavailable replicas"
+
+    # --------------------------------------------------------------------------
+    # Longhorn storage
+    # --------------------------------------------------------------------------
+    - name: cloudlab.storage
+      interval: 60s
+      rules:
+        - alert: LonghornVolumeActualSpaceUsedWarning
+          expr: |
+            (longhorn_volume_actual_size_bytes / longhorn_volume_capacity_bytes) > 0.90
+          for: 5m
+          labels:
+            severity: warning
+            component: storage
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} is over 90% full"
+
+        - alert: LonghornNodeStorageWarning
+          expr: |
+            (longhorn_node_storage_usage_bytes / longhorn_node_storage_capacity_bytes) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            component: storage
+          annotations:
+            summary: "Longhorn node {{ $labels.node }} storage above 85%"
+
+        - alert: LonghornVolumeStatusCritical
+          expr: |
+            longhorn_volume_robustness == 3
+          for: 2m
+          labels:
+            severity: critical
+            component: storage
+          annotations:
+            summary: "Longhorn volume {{ $labels.volume }} is in FAULTED state"
+
+    # --------------------------------------------------------------------------
+    # CloudLab lab sessions (stubs — metrics emitted by backend in Phase 1)
+    # --------------------------------------------------------------------------
+    - name: cloudlab.labs
+      interval: 30s
+      rules:
+        - alert: LabBootTimeHigh
+          expr: |
+            histogram_quantile(0.95, rate(cloudlab_lab_boot_duration_seconds_bucket[10m])) > 180
+          for: 5m
+          labels:
+            severity: warning
+            component: lab-engine
+          annotations:
+            summary: "P95 lab boot time exceeds 3 minutes"
+            description: "Current P95: {{ $value | humanizeDuration }}"
+
+        - alert: LabNamespaceCount
+          expr: |
+            count(kube_namespace_labels{label_cloudlab_session="true"}) > 80
+          for: 2m
+          labels:
+            severity: warning
+            component: lab-engine
+          annotations:
+            summary: "Active lab namespace count approaching limit (>80)"

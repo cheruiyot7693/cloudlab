@@ -1,0 +1,92 @@
+# =============================================================================
+# CloudLab — Monitoring Namespace & RBAC
+# Phase 0.3 | infra: namespace and RBAC manifests
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudlab-monitoring
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+    cloudlab/component: monitoring
+
+---
+# ServiceAccount used by future CloudLab backend to query Prometheus
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudlab-metrics-reader
+  namespace: cloudlab-monitoring
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+
+---
+# Role — read-only access to Prometheus metrics endpoint
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cloudlab-metrics-reader
+  namespace: cloudlab-monitoring
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["prometheuses", "prometheusrules", "servicemonitors", "podmonitors"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cloudlab-metrics-reader
+  namespace: cloudlab-monitoring
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cloudlab-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: cloudlab-metrics-reader
+    namespace: cloudlab-monitoring
+
+---
+# ClusterRole — allows Prometheus to scrape across all namespaces
+# (kube-prometheus-stack creates its own, this is for the CloudLab backend)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudlab-lab-namespace-watcher
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudlab-lab-namespace-watcher
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudlab-lab-namespace-watcher
+subjects:
+  - kind: ServiceAccount
+    name: cloudlab-metrics-reader
+    namespace: cloudlab-monitoring

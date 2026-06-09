@@ -1,0 +1,230 @@
+# CloudLab Platform — Multus CNI
+# ================================
+# Multus is a meta-CNI plugin that allows pods to have multiple
+# network interfaces. Required for Containerlab network topologies
+# where each router node needs multiple interfaces (one per link).
+#
+# Without Multus: each pod gets only eth0 (K3s default flannel).
+# With Multus:    each pod gets eth0 + net1, net2, net3... (lab links).
+#
+# Apply:
+#   kubectl apply -f infra/k8s/multus-cni.yaml
+#
+# Verify:
+#   kubectl get pods -n kube-system -l app=multus
+#   kubectl get network-attachment-definitions -A
+# ================================
+
+---
+# ── Multus CRD: NetworkAttachmentDefinition ───────────────────────────────────
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: network-attachment-definitions.k8s.cni.cncf.io
+spec:
+  group: k8s.cni.cncf.io
+  scope: Namespaced
+  names:
+    plural: network-attachment-definitions
+    singular: network-attachment-definition
+    kind: NetworkAttachmentDefinition
+    shortNames: [net-attach-def]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                config:
+                  type: string
+
+---
+# ── Multus DaemonSet ──────────────────────────────────────────────────────────
+# Runs on every node — installs the Multus CNI binary and config.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-multus-ds
+  namespace: kube-system
+  labels:
+    tier: node
+    app: multus
+    name: multus
+spec:
+  selector:
+    matchLabels:
+      name: multus
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: multus
+        name: multus
+    spec:
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      serviceAccountName: multus
+      initContainers:
+        - name: install-multus-binary
+          image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.0.2
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /host/opt/cni/bin && \
+              cp /usr/src/multus-cni/bin/multus /host/opt/cni/bin/multus && \
+              echo "Multus binary installed successfully" 
+          resources:
+            requests:
+              cpu: 10m
+              memory: 15Mi
+          volumeMounts:
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+              readOnly: false
+          securityContext:
+            privileged: true
+      containers:
+        - name: kube-multus
+          image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.0.2
+          command:
+            - /usr/src/multus-cni/bin/multus-daemon
+          args:
+            - --multus-conf-file=auto
+            - --cni-version=0.3.1
+            # K3s uses flannel — tell Multus to delegate to it
+            - --multus-master-cni-conf-dir=/host/etc/cni/net.d
+            - --cni-conf-dir=/host/etc/cni/net.d
+            - --multus-master-cni-file-name=10-flannel.conflist
+          resources:
+            requests:
+              cpu: 25m
+              memory: 50Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: cni
+              mountPath: /host/etc/cni/net.d
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+            - name: multus-cfg
+              mountPath: /tmp/multus-conf
+      volumes:
+        - name: cni
+          hostPath:
+            path: /var/lib/rancher/k3s/agent/etc/cni/net.d
+        - name: cnibin
+          hostPath:
+            path: /opt/cni/bin
+            type: DirectoryOrCreate
+        - name: multus-cfg
+          configMap:
+            name: multus-cni-config
+            items:
+              - key: cni-conf.json
+                path: 70-multus.conf
+
+---
+# ── Multus ServiceAccount + RBAC ──────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: multus
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: multus
+rules:
+  - apiGroups: ["k8s.cni.cncf.io"]
+    resources: ["network-attachment-definitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/status"]
+    verbs: ["get", "update"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: multus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: multus
+subjects:
+  - kind: ServiceAccount
+    name: multus
+    namespace: kube-system
+
+---
+# ── Default NetworkAttachmentDefinition: bridge ───────────────────────────────
+# Used by Containerlab to wire lab nodes together via Linux bridge.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multus-cni-config
+  namespace: kube-system
+data:
+  cni-conf.json: |
+    {
+      "name": "multus-cni-network",
+      "type": "multus",
+      "capabilities": {"portMappings": true},
+      "delegates": [
+        {
+          "cniVersion": "0.3.1",
+          "name": "default-network",
+          "plugins": [
+            {
+              "type": "flannel",
+              "name": "flannel",
+              "delegate": {
+                "isDefaultGateway": true,
+                "hairpinMode": true
+              }
+            }
+          ]
+        }
+      ],
+      "logFile": "/var/log/multus.log",
+      "logLevel": "error"
+    }
+
+---
+# ── Default lab bridge NetworkAttachmentDefinition ────────────────────────────
+# Containerlab will create per-topology bridges, but this is the default.
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: lab-bridge
+  namespace: cloudlab-labs
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "lab-bridge",
+      "type": "bridge",
+      "bridge": "clab-br0",
+      "isGateway": false,
+      "ipMasq": false,
+      "hairpinMode": true,
+      "ipam": {}
+    }

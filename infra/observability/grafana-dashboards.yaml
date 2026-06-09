@@ -1,0 +1,177 @@
+# =============================================================================
+# CloudLab — Grafana Dashboard ConfigMaps
+# Grafana sidecar picks these up automatically via label grafana_dashboard=1
+# Phase 0.3 — cluster overview + Longhorn
+# Phase 6.2 adds lab boot time, credit burn rate, active sessions dashboards
+# =============================================================================
+
+# ------------------------------------------------------------------------------
+# Dashboard 1: CloudLab Cluster Overview
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-dashboard-cluster
+  namespace: cloudlab-monitoring
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+    grafana_dashboard: "1"
+data:
+  cloudlab-cluster.json: |
+    {
+      "title": "CloudLab — Cluster Overview",
+      "uid": "cloudlab-cluster",
+      "tags": ["cloudlab"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "CPU Usage — All Nodes",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "1 - avg by(instance) (rate(node_cpu_seconds_total{mode='idle'}[5m]))",
+            "legendFormat": "{{ instance }}"
+          }],
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+          }
+        },
+        {
+          "id": 2,
+          "title": "Memory Available — All Nodes",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+            "legendFormat": "{{ instance }}"
+          }],
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+          }
+        },
+        {
+          "id": 3,
+          "title": "Active Lab Namespaces",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 8, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "count(kube_namespace_labels{label_cloudlab_session='true'}) or vector(0)",
+            "legendFormat": "Active Labs"
+          }]
+        },
+        {
+          "id": 4,
+          "title": "Pod Restarts (15m)",
+          "type": "stat",
+          "gridPos": { "x": 6, "y": 8, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(increase(kube_pod_container_status_restarts_total[15m]))",
+            "legendFormat": "Restarts"
+          }]
+        },
+        {
+          "id": 5,
+          "title": "Disk Usage — Root FS",
+          "type": "gauge",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 4 },
+          "targets": [{
+            "expr": "1 - (node_filesystem_avail_bytes{mountpoint='/'} / node_filesystem_size_bytes{mountpoint='/'})",
+            "legendFormat": "{{ instance }}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "min": 0, "max": 1,
+              "thresholds": {
+                "steps": [
+                  { "value": 0,    "color": "green" },
+                  { "value": 0.75, "color": "yellow" },
+                  { "value": 0.90, "color": "red" }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+
+---
+# ------------------------------------------------------------------------------
+# Dashboard 2: Longhorn Storage
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudlab-dashboard-longhorn
+  namespace: cloudlab-monitoring
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+    grafana_dashboard: "1"
+data:
+  cloudlab-longhorn.json: |
+    {
+      "title": "CloudLab — Longhorn Storage",
+      "uid": "cloudlab-longhorn",
+      "tags": ["cloudlab", "storage"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "60s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Volume Capacity Total",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(longhorn_volume_capacity_bytes)",
+            "legendFormat": "Total Capacity"
+          }],
+          "fieldConfig": { "defaults": { "unit": "bytes" } }
+        },
+        {
+          "id": 2,
+          "title": "Volume Usage Total",
+          "type": "stat",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(longhorn_volume_actual_size_bytes)",
+            "legendFormat": "Used"
+          }],
+          "fieldConfig": { "defaults": { "unit": "bytes" } }
+        },
+        {
+          "id": 3,
+          "title": "Volume Count by State",
+          "type": "piechart",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "count by(state) (longhorn_volume_state)",
+            "legendFormat": "{{ state }}"
+          }]
+        },
+        {
+          "id": 4,
+          "title": "Volume Fill % per Volume",
+          "type": "bargauge",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "longhorn_volume_actual_size_bytes / longhorn_volume_capacity_bytes",
+            "legendFormat": "{{ volume }}"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "min": 0, "max": 1,
+              "thresholds": {
+                "steps": [
+                  { "value": 0,    "color": "green" },
+                  { "value": 0.80, "color": "yellow" },
+                  { "value": 0.90, "color": "red" }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }

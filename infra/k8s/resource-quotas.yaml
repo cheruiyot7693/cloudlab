@@ -1,0 +1,77 @@
+# CloudLab Platform — Resource Quotas & LimitRanges
+# Tuned for 8GB RAM local dev machine.
+# kubectl apply -f infra/k8s/resource-quotas.yaml
+
+---
+# ── cloudlab-labs: cap total lab resource usage ──────────────────────────────
+# Budget: ~4-5GB for labs, leaving 3GB for K3s + platform services
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: lab-resource-quota
+  namespace: cloudlab-labs
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 4Gi
+    limits.cpu: "6"
+    limits.memory: 5Gi
+    count/pods: "50"
+    persistentvolumeclaims: "20"
+    count/services: "30"
+
+---
+# ── cloudlab-system: platform services ───────────────────────────────────────
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: system-resource-quota
+  namespace: cloudlab-system
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    limits.cpu: "3"
+    limits.memory: 3Gi
+    count/pods: "20"
+
+---
+# ── cloudlab-monitor: prometheus + grafana + loki ────────────────────────────
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: monitor-resource-quota
+  namespace: cloudlab-monitor
+spec:
+  hard:
+    requests.cpu: "500m"
+    requests.memory: 512Mi
+    limits.cpu: "1"
+    limits.memory: 1Gi
+    count/pods: "10"
+
+---
+# ── LimitRange: default per-container limits in lab namespace ─────────────────
+# Prevents runaway containers from eating all RAM
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: lab-default-limits
+  namespace: cloudlab-labs
+spec:
+  limits:
+    - type: Container
+      # Applied when a container has no resources specified
+      default:
+        cpu: "500m"
+        memory: "256Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      # Hard ceiling per container — FRR/VyOS nodes don't need more
+      max:
+        cpu: "2"
+        memory: "1Gi"
+      min:
+        cpu: "50m"
+        memory: "32Mi"

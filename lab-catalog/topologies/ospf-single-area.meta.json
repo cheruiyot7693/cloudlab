@@ -1,0 +1,23 @@
+{
+  "name": "ospf-single-area",
+  "display_name": "OSPF Single Area",
+  "description": "Three FRRouting routers in OSPF Area 0. Practice neighbor adjacency, DR/BDR election, and route advertisement.",
+  "category": "ospf",
+  "difficulty": "beginner",
+  "certification_track": ["CCNA", "CCNP"],
+  "nos": ["frrouting"],
+  "node_count": 4,
+  "link_count": 4,
+  "estimated_boot_seconds": 90,
+  "ram_mb": 384,
+  "tags": ["ospf", "routing", "frr", "beginner", "area-0"],
+  "learning_objectives": [
+    "Configure OSPF on FRRouting",
+    "Understand DR/BDR election",
+    "Verify neighbor adjacency with show commands",
+    "Trace OSPF route advertisement"
+  ],
+  "topology_file": "ospf-single-area.clab.yml",
+  "version": "1.0.0",
+  "author": "CloudLab Platform"
+}

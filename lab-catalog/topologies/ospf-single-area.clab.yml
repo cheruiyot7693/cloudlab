@@ -1,0 +1,83 @@
+name: ospf-single-area
+
+# CloudLab Platform — OSPF Single Area Lab
+# ==========================================
+# Topology: 3 FRRouting routers in OSPF Area 0
+# NOS: FRRouting (FRR) — container-native, no license needed
+# Difficulty: Beginner (CCNA level)
+# Boot time: ~90 seconds
+# RAM: ~384MB (3 x 128MB)
+#
+# What you'll practice:
+#   - OSPF neighbor adjacency
+#   - Route advertisement
+#   - DR/BDR election
+#   - OSPF show commands
+#
+# Deploy:
+#   containerlab deploy -t lab-catalog/topologies/ospf-single-area.clab.yml
+#
+# Connect to a router:
+#   docker exec -it clab-ospf-single-area-R1 vtysh
+
+topology:
+  defaults:
+    kind: linux
+
+  kinds:
+    linux:
+      image: frrouting/frr:v9.1.0
+
+  nodes:
+    R1:
+      kind: linux
+      image: frrouting/frr:v9.1.0
+      binds:
+        - lab-catalog/configs/ospf-single-area/R1/frr.conf:/etc/frr/frr.conf
+        - lab-catalog/configs/ospf-single-area/R1/daemons:/etc/frr/daemons
+      labels:
+        role: router
+        area: "0"
+        cloudlab/lab: ospf-single-area
+
+    R2:
+      kind: linux
+      image: frrouting/frr:v9.1.0
+      binds:
+        - lab-catalog/configs/ospf-single-area/R2/frr.conf:/etc/frr/frr.conf
+        - lab-catalog/configs/ospf-single-area/R2/daemons:/etc/frr/daemons
+      labels:
+        role: router
+        area: "0"
+        cloudlab/lab: ospf-single-area
+
+    R3:
+      kind: linux
+      image: frrouting/frr:v9.1.0
+      binds:
+        - lab-catalog/configs/ospf-single-area/R3/frr.conf:/etc/frr/frr.conf
+        - lab-catalog/configs/ospf-single-area/R3/daemons:/etc/frr/daemons
+      labels:
+        role: router
+        area: "0"
+        cloudlab/lab: ospf-single-area
+
+    PC1:
+      kind: linux
+      image: alpine:3.19
+      labels:
+        role: host
+        cloudlab/lab: ospf-single-area
+
+  links:
+    # R1 -- R2  (10.0.12.0/30)
+    - endpoints: [R1:eth1, R2:eth1]
+
+    # R2 -- R3  (10.0.23.0/30)
+    - endpoints: [R2:eth2, R3:eth1]
+
+    # R1 -- R3  (10.0.13.0/30)
+    - endpoints: [R1:eth2, R3:eth2]
+
+    # R1 -- PC1 (192.168.1.0/24)
+    - endpoints: [R1:eth3, PC1:eth1]

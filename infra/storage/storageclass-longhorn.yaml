@@ -1,0 +1,71 @@
+# =============================================================================
+# CloudLab — Longhorn StorageClass Definitions
+# Phase 0.3 | infra: longhorn storage class config
+# =============================================================================
+
+# ------------------------------------------------------------------------------
+# Default StorageClass — used by all lab node config snapshots
+# 1 replica (dev/single-node K3s). Bump replicaCount to 2+ in production.
+# ------------------------------------------------------------------------------
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "2880"          # 48h before stale replica cleanup
+  fromBackup: ""
+  fsType: ext4
+  dataLocality: best-effort            # keep data on the node accessing it
+  recurringJobSelector: '[{"name":"snap-daily","isGroup":false}]'
+
+---
+# ------------------------------------------------------------------------------
+# Retained StorageClass — for lab snapshots that must survive lab deletion
+# Used by Phase 1.4 pause/resume snapshot volumes
+# ------------------------------------------------------------------------------
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-retain
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Retain                  # PV stays after PVC is deleted
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "2880"
+  fsType: ext4
+  dataLocality: best-effort
+
+---
+# ------------------------------------------------------------------------------
+# Recurring snapshot job — daily snapshot of all lab volumes
+# Keeps last 7 snapshots
+# ------------------------------------------------------------------------------
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snap-daily
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+spec:
+  cron: "0 2 * * *"                    # 02:00 UTC daily
+  task: snapshot
+  groups:
+    - default
+  retain: 7
+  concurrency: 2
+  labels:
+    job: snap-daily

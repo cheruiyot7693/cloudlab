@@ -1,0 +1,109 @@
+# CloudLab Platform — Namespace Strategy
+# ============================================================
+# Static namespaces: applied once during cluster bootstrap
+# Dynamic namespaces: created per-lab by the backend API
+#
+# Apply static namespaces:
+#   kubectl apply -f infra/k8s/namespaces.yaml
+# ============================================================
+
+# ── Static: Platform services ─────────────────────────────────────────────────
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudlab-system
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+    app.kubernetes.io/component: platform
+    cloudlab/namespace-type: system
+
+---
+# ── Static: Lab pool — all user labs run inside here ─────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudlab-labs
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+    app.kubernetes.io/component: labs
+    cloudlab/namespace-type: labs-pool
+
+---
+# ── Static: Observability stack ──────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudlab-monitor
+  labels:
+    app.kubernetes.io/part-of: cloudlab
+    app.kubernetes.io/component: observability
+    cloudlab/namespace-type: monitor
+
+---
+# ── ServiceAccount for backend lab provisioner ───────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudlab-controller
+  namespace: cloudlab-system
+
+---
+# ── ClusterRole: what the backend controller can do ──────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudlab-controller
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# ── ClusterRoleBinding ────────────────────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudlab-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudlab-controller
+subjects:
+  - kind: ServiceAccount
+    name: cloudlab-controller
+    namespace: cloudlab-system
+
+---
+# ── NetworkPolicy: isolate labs from platform services ────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-labs-from-system
+  namespace: cloudlab-labs
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              cloudlab/namespace-type: labs-pool
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              cloudlab/namespace-type: labs-pool
