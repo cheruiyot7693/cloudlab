@@ -1,0 +1,186 @@
+# =============================================================================
+# CloudLab — kube-prometheus-stack Helm Values
+# Phase 0.3 | infra: prometheus and grafana helm chart
+# =============================================================================
+
+# ------------------------------------------------------------------------------
+# Global
+# ------------------------------------------------------------------------------
+fullnameOverride: "kube-prometheus-stack"
+namespaceOverride: "cloudlab-monitoring"
+
+commonLabels:
+  app.kubernetes.io/part-of: cloudlab
+
+# ------------------------------------------------------------------------------
+# Grafana
+# ------------------------------------------------------------------------------
+grafana:
+  enabled: true
+  adminPassword: ""    # override via secret in production
+
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: cloudlab-monitoring
+    datasources:
+      enabled: true
+
+  persistence:
+    enabled: true
+    storageClassName: longhorn
+    size: 2Gi
+
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/grafana"
+      serve_from_sub_path: true
+    auth:
+      disable_login_form: false
+    users:
+      allow_sign_up: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Pre-load CloudLab dashboards folder
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: cloudlab
+          orgId: 1
+          folder: CloudLab
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/cloudlab
+
+# ------------------------------------------------------------------------------
+# Prometheus
+# ------------------------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: "8GB"
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+    # Scrape all namespaces (needed to monitor cloudlab-labs namespace)
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Additional scrape configs for Containerlab nodes (added in Phase 0.4)
+    additionalScrapeConfigs: []
+
+# ------------------------------------------------------------------------------
+# Alertmanager
+# ------------------------------------------------------------------------------
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['namespace', 'alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'null'
+      routes:
+        - matchers:
+            - alertname = "Watchdog"
+          receiver: 'null'
+        - matchers:
+            - severity = "critical"
+          receiver: cloudlab-critical
+    receivers:
+      - name: 'null'
+      - name: cloudlab-critical
+        # Swap in PagerDuty/Slack routing in Phase 6.2
+        webhook_configs: []
+
+# ------------------------------------------------------------------------------
+# Node Exporter (host metrics — CPU, memory, disk per node)
+# ------------------------------------------------------------------------------
+nodeExporter:
+  enabled: true
+
+# ------------------------------------------------------------------------------
+# kube-state-metrics (pod/namespace/deployment state)
+# ------------------------------------------------------------------------------
+kube-state-metrics:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# ------------------------------------------------------------------------------
+# Default rules — keep all, add CloudLab-specific in alerting-rules.yaml
+# ------------------------------------------------------------------------------
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: false           # K3s uses embedded etcd, skip external etcd rules
+    configReloaders: true
+    general: true
+    k8s: true
+    kubeApiserverAvailability: true
+    kubeApiserverBurnrate: true
+    kubeApiserverHistogram: true
+    kubeApiserverSlas: true
+    kubeControllerManager: false  # not exposed in K3s
+    kubelet: true
+    kubeProxy: false              # not exposed in K3s
+    kubeSchedulerAlerting: false  # not exposed in K3s
+    kubeSchedulerRecording: false
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
