@@ -5,7 +5,7 @@
 CloudLab is a managed, hosted cloud lab environment that aggregates pre-deployed network topologies — routers, switches, firewalls, and multi-vendor NOS images — and presents them as a one-click, ready-to-run lab catalog.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/YOUR_ORG/cloudlab/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/cloudlab/actions/workflows/ci.yml)
+[![CI](https://github.com/cheruiyot7693/cloudlab/actions/workflows/ci.yml/badge.svg)](https://github.com/cheruiyot7693/cloudlab/actions/workflows/ci.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 ---
@@ -83,7 +83,7 @@ cloudlab/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_ORG/cloudlab.git
+git clone https://github.com/cheruiyot7693/cloudlab.git
 cd cloudlab
 ```
 
