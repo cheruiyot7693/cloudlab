@@ -82,7 +82,7 @@ spec:
             - |
               mkdir -p /host/opt/cni/bin && \
               cp /usr/src/multus-cni/bin/multus /host/opt/cni/bin/multus && \
-              echo "Multus binary installed successfully" 
+              echo "Multus binary installed successfully"
           resources:
             requests:
               cpu: 10m
